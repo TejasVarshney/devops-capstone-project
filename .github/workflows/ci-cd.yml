@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -84,7 +84,7 @@ jobs:
       frontend_image: ${{ steps.names.outputs.frontend }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Compute image names
         id: names
@@ -176,7 +176,7 @@ jobs:
 
       - name: Checkout
         if: steps.creds.outputs.ready == 'true'
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Configure AWS credentials
         if: steps.creds.outputs.ready == 'true'
