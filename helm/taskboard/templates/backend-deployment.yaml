@@ -1,0 +1,124 @@
+{{- $backend := .Values.backend }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "taskboard.backendName" . }}
+  labels:
+    {{- include "taskboard.componentLabels" (dict "ctx" . "component" "backend") | nindent 4 }}
+spec:
+  {{- if not $backend.autoscaling.enabled }}
+  replicas: {{ $backend.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "taskboard.selectorLabels" (dict "ctx" . "component" "backend") | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0 # never drop below the current capacity during a rollout
+  template:
+    metadata:
+      labels:
+        {{- include "taskboard.componentLabels" (dict "ctx" . "component" "backend") | nindent 8 }}
+      annotations:
+        # Restart Pods when the database Secret changes.
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        runAsUser: 10001
+        runAsGroup: 10001
+      {{- if .Values.postgres.enabled }}
+      initContainers:
+        # Do not start the API (and its migrations) before PostgreSQL accepts connections.
+        - name: wait-for-postgres
+          image: "{{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}"
+          imagePullPolicy: {{ .Values.postgres.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h {{ include "taskboard.postgresName" . }} -p 5432 -U {{ .Values.postgres.auth.username }}; do
+                echo "waiting for postgres..."; sleep 2
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      {{- end }}
+      containers:
+        - name: backend
+          image: "{{ $backend.image.repository }}:{{ required "backend.image.tag is required: set it to the Git commit SHA of the image" $backend.image.tag }}"
+          imagePullPolicy: {{ $backend.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "taskboard.secretName" . }}
+                  key: database-url
+            {{- range $name, $value := $backend.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+          startupProbe:
+            httpGet:
+              path: {{ $backend.probes.startup.path }}
+              port: http
+            periodSeconds: {{ $backend.probes.startup.periodSeconds }}
+            failureThreshold: {{ $backend.probes.startup.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: {{ $backend.probes.liveness.path }}
+              port: http
+            periodSeconds: {{ $backend.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ $backend.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ $backend.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ $backend.probes.readiness.path }}
+              port: http
+            periodSeconds: {{ $backend.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ $backend.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ $backend.probes.readiness.failureThreshold }}
+          resources:
+            {{- toYaml $backend.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with $backend.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $backend.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $backend.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

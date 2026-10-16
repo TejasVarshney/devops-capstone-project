@@ -1,0 +1,12 @@
+# Logical isolation for everything TaskBoard runs in the cluster.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: taskboard
+  labels:
+    app.kubernetes.io/part-of: taskboard
+    # Pod Security Standards: reject privileged Pods ("baseline"), and warn about
+    # anything that would not pass the stricter "restricted" profile.
+    # (The postgres image starts as root to fix volume permissions, so it is baseline-only.)
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted

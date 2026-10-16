@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "taskboard.fullname" . }}-test-connection
+  labels:
+    {{- include "taskboard.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: smoke-test
+      image: busybox:1.37
+      command:
+        - sh
+        - -c
+        - |
+          set -e
+          echo "backend /health";  wget -q -O- http://{{ include "taskboard.backendName" . }}:{{ .Values.backend.service.port }}/health
+          echo; echo "backend /ready"; wget -q -O- http://{{ include "taskboard.backendName" . }}:{{ .Values.backend.service.port }}/ready
+          echo; echo "frontend /";    wget -q -O /dev/null http://{{ include "taskboard.frontendName" . }}:{{ .Values.frontend.service.port }}/
+          echo "all good"
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]

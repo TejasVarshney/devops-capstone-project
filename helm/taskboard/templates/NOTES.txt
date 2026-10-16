@@ -1,0 +1,40 @@
+TaskBoard {{ .Chart.AppVersion }} is deployed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Check the rollout:
+  kubectl get pods,svc -n {{ .Release.Namespace }}
+  kubectl rollout status deployment/{{ include "taskboard.backendName" . }} -n {{ .Release.Namespace }}
+
+{{- if .Values.ingress.enabled }}
+
+Open the app through the Ingress:
+{{- if .Values.ingress.host }}
+  http://{{ .Values.ingress.host }}/          (frontend)
+  http://{{ .Values.ingress.host }}/docs      (FastAPI Swagger)
+  Map {{ .Values.ingress.host }} to your ingress controller's address (e.g. in /etc/hosts).
+{{- else }}
+  kubectl get ingress {{ include "taskboard.fullname" . }} -n {{ .Release.Namespace }}
+  Then browse to the ADDRESS column (/, /docs, /api/tasks).
+{{- end }}
+{{- else }}
+
+Open the app with a port-forward:
+  kubectl port-forward svc/{{ include "taskboard.frontendName" . }} 3000:{{ .Values.frontend.service.port }} -n {{ .Release.Namespace }}
+  kubectl port-forward svc/{{ include "taskboard.backendName" . }} 8000:{{ .Values.backend.service.port }} -n {{ .Release.Namespace }}
+  -> http://localhost:3000  and  http://localhost:8000/docs
+{{- end }}
+
+{{- if .Values.backend.autoscaling.enabled }}
+
+Autoscaling ({{ .Values.backend.autoscaling.minReplicas }}-{{ .Values.backend.autoscaling.maxReplicas }} backend Pods at {{ .Values.backend.autoscaling.targetCPUUtilizationPercentage }}% CPU):
+  kubectl get hpa -n {{ .Release.Namespace }} -w
+{{- end }}
+
+{{- if and .Values.serviceMonitor.enabled (not (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/ServiceMonitor")) }}
+
+NOTE: serviceMonitor.enabled is true, but the Prometheus Operator CRDs are not installed,
+so no ServiceMonitor, PrometheusRule or Grafana dashboard was created. Install
+kube-prometheus-stack (see monitoring/README.md) and run `helm upgrade` again.
+{{- end }}
+
+Run the chart's smoke test:
+  helm test {{ .Release.Name }} -n {{ .Release.Namespace }}

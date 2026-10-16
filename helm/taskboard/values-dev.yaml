@@ -1,0 +1,27 @@
+# Local / classroom cluster (minikube, kind, Docker Desktop).
+#
+#   helm upgrade --install taskboard ./helm/taskboard -n taskboard --create-namespace \
+#     -f helm/taskboard/values-dev.yaml \
+#     --set backend.image.tag=<commit-sha> --set frontend.image.tag=<commit-sha>
+#
+# Then map the hostname to your ingress controller, e.g. in /etc/hosts:
+#   <ingress-ip>  taskboard.local
+
+ingress:
+  enabled: true
+  className: nginx # minikube: `minikube addons enable ingress`
+  host: taskboard.local
+
+backend:
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 50
+
+frontend:
+  replicaCount: 2 # at least two replicas, so one Pod can fail without downtime
+
+postgres:
+  persistence:
+    size: 1Gi

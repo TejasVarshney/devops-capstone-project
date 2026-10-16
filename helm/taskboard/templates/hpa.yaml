@@ -1,0 +1,39 @@
+{{- if .Values.backend.autoscaling.enabled }}
+{{- $as := .Values.backend.autoscaling }}
+# Requires resources.requests.cpu on the backend container and a metrics provider
+# (metrics-server). Without metrics the HPA shows <unknown> and never scales.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "taskboard.backendName" . }}
+  labels:
+    {{- include "taskboard.componentLabels" (dict "ctx" . "component" "backend") | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "taskboard.backendName" . }}
+  minReplicas: {{ $as.minReplicas }}
+  maxReplicas: {{ $as.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $as.targetCPUUtilizationPercentage }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 30
+    scaleDown:
+      # Shorter than the 5-minute default so the classroom demo scales back down quickly.
+      stabilizationWindowSeconds: 120
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+{{- end }}

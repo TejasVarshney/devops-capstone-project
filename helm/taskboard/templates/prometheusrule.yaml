@@ -1,0 +1,44 @@
+{{- if and .Values.prometheusRule.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/PrometheusRule") }}
+{{- $job := include "taskboard.backendName" . }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "taskboard.fullname" . }}-alerts
+  labels:
+    {{- include "taskboard.labels" . | nindent 4 }}
+    {{- with .Values.prometheusRule.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: taskboard.rules
+      rules:
+        - alert: TaskBoardBackendDown
+          expr: sum(up{job="{{ $job }}", namespace="{{ .Release.Namespace }}"}) == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: No TaskBoard backend Pod is being scraped successfully.
+            description: Check `kubectl get pods -n {{ .Release.Namespace }}` and the backend logs.
+
+        - alert: TaskBoardHighErrorRate
+          expr: |
+            sum(rate(http_requests_total{job="{{ $job }}", status="5xx"}[5m]))
+              / clamp_min(sum(rate(http_requests_total{job="{{ $job }}"}[5m])), 1e-9) > 0.05
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: More than 5% of TaskBoard API requests are failing with 5xx.
+
+        - alert: TaskBoardHighLatency
+          expr: |
+            histogram_quantile(0.95,
+              sum by (le) (rate(http_request_duration_seconds_bucket{job="{{ $job }}"}[5m]))) > 0.5
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: TaskBoard API p95 latency is above 500 ms.
+{{- end }}

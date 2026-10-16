@@ -1,0 +1,76 @@
+{{- $frontend := .Values.frontend }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "taskboard.frontendName" . }}
+  labels:
+    {{- include "taskboard.componentLabels" (dict "ctx" . "component" "frontend") | nindent 4 }}
+spec:
+  replicas: {{ $frontend.replicaCount }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "taskboard.selectorLabels" (dict "ctx" . "component" "frontend") | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "taskboard.componentLabels" (dict "ctx" . "component" "frontend") | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        runAsUser: 101 # the "nginx" user of nginx-unprivileged
+        runAsGroup: 101
+      containers:
+        - name: frontend
+          image: "{{ $frontend.image.repository }}:{{ required "frontend.image.tag is required: set it to the Git commit SHA of the image" $frontend.image.tag }}"
+          imagePullPolicy: {{ $frontend.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            # Nginx proxies /api to this Service (the Ingress normally routes /api first).
+            - name: BACKEND_HOST
+              value: {{ include "taskboard.backendName" . }}
+            - name: BACKEND_PORT
+              value: {{ .Values.backend.service.port | quote }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+          resources:
+            {{- toYaml $frontend.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            # Nginx renders its config from a template at startup, so the root
+            # filesystem stays writable for this container.
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+      {{- with $frontend.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $frontend.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $frontend.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

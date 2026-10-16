@@ -1,0 +1,81 @@
+{{- if .Values.postgres.enabled }}
+{{- $pg := .Values.postgres }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "taskboard.postgresName" . }}
+  labels:
+    {{- include "taskboard.componentLabels" (dict "ctx" . "component" "postgres") | nindent 4 }}
+spec:
+  serviceName: {{ include "taskboard.postgresName" . }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "taskboard.selectorLabels" (dict "ctx" . "component" "postgres") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "taskboard.componentLabels" (dict "ctx" . "component" "postgres") | nindent 8 }}
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+    spec:
+      securityContext:
+        fsGroup: 70 # "postgres" group in the alpine image, so it can write to the volume
+      containers:
+        - name: postgres
+          image: "{{ $pg.image.repository }}:{{ $pg.image.tag }}"
+          imagePullPolicy: {{ $pg.image.pullPolicy }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_USER
+              value: {{ $pg.auth.username | quote }}
+            - name: POSTGRES_DB
+              value: {{ $pg.auth.database | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "taskboard.secretName" . }}
+                  key: postgres-password
+            # A sub-directory, because a fresh EBS volume contains a lost+found folder.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml $pg.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  {{- if $pg.persistence.enabled }}
+  # Each replica gets its own PersistentVolumeClaim, which survives Pod restarts.
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "taskboard.selectorLabels" (dict "ctx" . "component" "postgres") | nindent 10 }}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if $pg.persistence.storageClass }}
+        storageClassName: {{ $pg.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $pg.persistence.size }}
+  {{- else }}
+      volumes:
+        - name: data
+          emptyDir: {}
+  {{- end }}
+{{- end }}

@@ -1,0 +1,17 @@
+# EKS only. Since Kubernetes 1.30, EKS no longer marks any StorageClass as the default,
+# so a PersistentVolumeClaim without storageClassName would stay Pending forever.
+# This creates an encrypted gp3 class (served by the EBS CSI add-on from Terraform)
+# and makes it the default.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  encrypted: "true"
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+allowVolumeExpansion: true

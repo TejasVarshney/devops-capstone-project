@@ -1,0 +1,15 @@
+{{- if and .Values.grafanaDashboard.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/ServiceMonitor") }}
+# The Grafana sidecar in kube-prometheus-stack loads every ConfigMap labelled
+# grafana_dashboard="1" as a dashboard.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "taskboard.fullname" . }}-grafana-dashboard
+  namespace: {{ .Values.grafanaDashboard.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "taskboard.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  taskboard.json: |-
+{{ .Files.Get "dashboards/taskboard.json" | indent 4 }}
+{{- end }}

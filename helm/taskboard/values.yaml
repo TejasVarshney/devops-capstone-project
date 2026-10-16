@@ -1,0 +1,171 @@
+# Default values for the TaskBoard chart.
+# Override per environment with -f values-dev.yaml / -f values-eks.yaml, or with --set.
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Needed only if your GHCR packages are private:
+#   kubectl create secret docker-registry ghcr-pull -n taskboard \
+#     --docker-server=ghcr.io --docker-username=<github-user> --docker-password=<PAT with read:packages>
+imagePullSecrets: []
+#  - name: ghcr-pull
+
+# -----------------------------------------------------------------------------
+# Backend (FastAPI)
+# -----------------------------------------------------------------------------
+backend:
+  image:
+    repository: ghcr.io/your-github-username/taskboard-backend
+    # Required: the Git commit SHA of the image (CI/CD passes --set backend.image.tag=<sha>).
+    # There is deliberately no "latest" default, so every release is traceable to a commit.
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  replicaCount: 2 # ignored while autoscaling.enabled is true
+
+  service:
+    type: ClusterIP
+    port: 8000
+
+  env:
+    LOG_LEVEL: INFO
+
+  # Requests are what the scheduler reserves and what the HPA percentage is based on.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 384Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 60
+
+  probes:
+    startup:
+      path: /health
+      periodSeconds: 5
+      failureThreshold: 30 # up to 150 s for migrations on first start
+    liveness:
+      path: /health
+      periodSeconds: 10
+      timeoutSeconds: 2
+      failureThreshold: 3
+    readiness:
+      path: /ready
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 3
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# -----------------------------------------------------------------------------
+# Frontend (React build served by Nginx)
+# -----------------------------------------------------------------------------
+frontend:
+  image:
+    repository: ghcr.io/your-github-username/taskboard-frontend
+    tag: "" # required: the Git commit SHA, same as backend.image.tag
+    pullPolicy: IfNotPresent
+
+  replicaCount: 2
+
+  service:
+    type: ClusterIP
+    port: 80
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# -----------------------------------------------------------------------------
+# PostgreSQL (in-cluster, for the classroom demo)
+# For production on AWS, set postgres.enabled=false and point externalDatabase.url
+# at Amazon RDS instead.
+# -----------------------------------------------------------------------------
+postgres:
+  enabled: true
+  image:
+    repository: postgres
+    tag: 16-alpine
+    pullPolicy: IfNotPresent
+
+  auth:
+    username: taskboard
+    database: taskboard
+    # Demo value only. Use --set postgres.auth.password=... or secrets.existingSecret.
+    password: taskboard-change-me
+
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClass: "" # "" = cluster default StorageClass (see k8s/storageclass-gp3.yaml on EKS)
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+externalDatabase:
+  # Used only when postgres.enabled=false, e.g.
+  # postgresql+psycopg://taskboard:<password>@taskboard.xxxxxx.ap-south-1.rds.amazonaws.com:5432/taskboard
+  url: ""
+
+secrets:
+  # Name of a Secret you manage yourself (keys: database-url, postgres-password).
+  # When set, the chart does not create its own Secret.
+  existingSecret: ""
+
+# -----------------------------------------------------------------------------
+# Ingress
+# An Ingress is only configuration: an Ingress Controller must be installed to act on it.
+# -----------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: nginx
+  host: taskboard.local # "" = match any host (useful with a cloud load balancer hostname)
+  annotations: {}
+  tls: []
+  #  - secretName: taskboard-tls
+  #    hosts: [taskboard.example.com]
+
+# -----------------------------------------------------------------------------
+# Monitoring (Prometheus Operator / kube-prometheus-stack)
+# These resources are rendered only when their CRDs exist in the cluster, so a plain
+# install never fails. Install monitoring first, then `helm upgrade` this release.
+# -----------------------------------------------------------------------------
+serviceMonitor:
+  enabled: true
+  interval: 15s
+  additionalLabels: {}
+
+prometheusRule:
+  enabled: true
+  additionalLabels: {}
+
+grafanaDashboard:
+  enabled: true
+  # Namespace the Grafana sidecar watches. "" = the release namespace.
+  namespace: ""
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault

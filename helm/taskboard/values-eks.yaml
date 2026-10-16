@@ -1,0 +1,29 @@
+# AWS EKS (cluster created by ../../terraform). Used by the GitHub Actions deploy job.
+#
+# Prerequisites (see README, Part I-M):
+#   kubectl apply -f k8s/           (namespace + default gp3 StorageClass)
+#   Traefik ingress controller       (creates an AWS load balancer)
+#   kube-prometheus-stack            (Prometheus + Grafana)
+
+ingress:
+  enabled: true
+  className: traefik
+  host: "" # accept the load balancer's generated hostname
+
+backend:
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 60
+
+frontend:
+  replicaCount: 2
+
+postgres:
+  persistence:
+    size: 10Gi
+    storageClass: gp3
+
+grafanaDashboard:
+  namespace: monitoring
