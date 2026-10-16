@@ -1,0 +1,56 @@
+# Values for the prometheus-community/kube-prometheus-stack Helm chart.
+#
+#   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+#   helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+#     -n monitoring --create-namespace -f monitoring/kube-prometheus-stack-values.yaml
+#
+# Installs: Prometheus Operator, Prometheus, Alertmanager, Grafana,
+# kube-state-metrics (HPA replica metrics) and node-exporter.
+
+prometheus:
+  prometheusSpec:
+    # Pick up ServiceMonitors / PrometheusRules from every namespace, not only the
+    # ones labelled with this Helm release. The TaskBoard chart needs no extra labels.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    retention: 3d
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+
+grafana:
+  # Demo credentials. Change them (or use an existing Secret) outside the classroom.
+  adminUser: admin
+  adminPassword: taskboard-grafana
+  defaultDashboardsTimezone: browser
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL # load the TaskBoard dashboard ConfigMap from any namespace
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+# EKS manages these control-plane components; there is nothing to scrape.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false
