@@ -1,0 +1,213 @@
+# TaskBoard CI/CD
+#
+#   test  ──►  build + Trivy scan + push to GHCR  ──►  deploy with Helm (main only)
+#
+# Every image is tagged with the Git commit SHA, so a running Pod can always be traced
+# back to the exact commit that produced it.
+
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  AWS_REGION: ap-south-1
+  EKS_CLUSTER_NAME: taskboard-eks
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. TEST - the first quality gate. If pytest or the frontend build fails,
+  #    nothing gets built, scanned, pushed or deployed.
+  # ---------------------------------------------------------------------------
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements-dev.txt
+
+      - name: Run pytest
+        working-directory: backend
+        run: pytest -q
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build React frontend
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+  # ---------------------------------------------------------------------------
+  # 2. BUILD + SECURITY SCAN + PUSH
+  #    Images are built locally on the runner, scanned, and only pushed if the
+  #    scan passes. Pull requests build and scan but never push.
+  # ---------------------------------------------------------------------------
+  build-scan-push:
+    name: Build, scan, push
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ github.sha }}
+      backend_image: ${{ steps.names.outputs.backend }}
+      frontend_image: ${{ steps.names.outputs.frontend }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Compute image names
+        id: names
+        # GHCR repository names must be lowercase.
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "backend=${REGISTRY}/${owner}/taskboard-backend" >> "$GITHUB_OUTPUT"
+          echo "frontend=${REGISTRY}/${owner}/taskboard-frontend" >> "$GITHUB_OUTPUT"
+
+      - name: Build backend image
+        run: |
+          docker build \
+            --build-arg GIT_SHA=${{ github.sha }} \
+            --label org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }} \
+            --label org.opencontainers.image.revision=${{ github.sha }} \
+            -t ${{ steps.names.outputs.backend }}:${{ github.sha }} \
+            ./backend
+
+      - name: Build frontend image
+        run: |
+          docker build \
+            --build-arg GIT_SHA=${{ github.sha }} \
+            --build-arg APP_ENV=eks \
+            --label org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }} \
+            --label org.opencontainers.image.revision=${{ github.sha }} \
+            -t ${{ steps.names.outputs.frontend }}:${{ github.sha }} \
+            ./frontend
+
+      # Pinned to a full commit SHA (v0.36.0). Mutable tags of this action were
+      # hijacked in March 2026; pinning by SHA protects the pipeline from that.
+      - name: Trivy scan - backend
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.names.outputs.backend }}:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Trivy scan - frontend
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.names.outputs.frontend }}:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Only the immutable commit-SHA tag is pushed. A moving tag such as "latest"
+      # would hide which commit is actually running in the cluster.
+      - name: Push images
+        if: github.event_name != 'pull_request'
+        run: |
+          docker push "${{ steps.names.outputs.backend }}:${{ github.sha }}"
+          docker push "${{ steps.names.outputs.frontend }}:${{ github.sha }}"
+
+  # ---------------------------------------------------------------------------
+  # 3. DEPLOY - Helm upgrade on the EKS cluster created by Terraform.
+  #    Runs only for pushes to main, and only once the AWS secrets exist, so the
+  #    pipeline stays green before the cluster has been created.
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy to EKS
+    needs: build-scan-push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    steps:
+      - name: Check deployment credentials
+        id: creds
+        run: |
+          if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+            echo "AWS secrets are not configured; skipping deployment."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.creds.outputs.ready == 'true'
+        uses: actions/checkout@v5
+
+      - name: Configure AWS credentials
+        if: steps.creds.outputs.ready == 'true'
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configure kubectl
+        if: steps.creds.outputs.ready == 'true'
+        run: aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
+
+      - name: Install Helm
+        if: steps.creds.outputs.ready == 'true'
+        uses: azure/setup-helm@v4
+
+      - name: Helm upgrade --install
+        if: steps.creds.outputs.ready == 'true'
+        run: |
+          helm upgrade --install taskboard ./helm/taskboard \
+            --namespace taskboard --create-namespace \
+            -f helm/taskboard/values-eks.yaml \
+            --set backend.image.repository=${{ needs.build-scan-push.outputs.backend_image }} \
+            --set backend.image.tag=${{ needs.build-scan-push.outputs.image_tag }} \
+            --set frontend.image.repository=${{ needs.build-scan-push.outputs.frontend_image }} \
+            --set frontend.image.tag=${{ needs.build-scan-push.outputs.image_tag }} \
+            --wait --timeout 10m
+
+      - name: Show rollout
+        if: steps.creds.outputs.ready == 'true'
+        run: |
+          kubectl get pods,svc,ingress,hpa -n taskboard
+          helm history taskboard -n taskboard --max 5
