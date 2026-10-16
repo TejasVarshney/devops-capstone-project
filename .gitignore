@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+*.db
+
+# Node / Vite
+node_modules/
+dist/
+.vite/
+npm-debug.log*
+
+# Terraform (state contains secrets and must never be committed)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+*.tfplan
+
+# Kubernetes / Helm
+*.kubeconfig
+helm/**/charts/*.tgz
+
+# Environment and editors
+.env
+.env.*
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

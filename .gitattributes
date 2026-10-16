@@ -1,0 +1,7 @@
+# Keep LF line endings in the repository and in Linux containers, even when the
+# project is edited on Windows (CRLF breaks shell scripts inside images).
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
