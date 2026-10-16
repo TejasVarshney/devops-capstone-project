@@ -1,0 +1,29 @@
+# Fix for Lab 1: the tag "1.30-alpne" does not exist in the registry, so the kubelet
+# reports ErrImagePull -> ImagePullBackOff. Correct the tag and re-apply.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: broken-image
+  labels:
+    app: broken-image
+    lab: troubleshooting
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: broken-image
+  template:
+    metadata:
+      labels:
+        app: broken-image
+        lab: troubleshooting
+    spec:
+      containers:
+        - name: web
+          image: nginxinc/nginx-unprivileged:1.30-alpine
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi

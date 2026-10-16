@@ -1,0 +1,48 @@
+# Lab 3 (bonus) - Running, but READY stays 0/1 and the Service has no endpoints.
+#   kubectl apply -f troubleshooting/broken-probe.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: probe-demo
+  labels:
+    lab: troubleshooting
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: probe-demo
+  template:
+    metadata:
+      labels:
+        app: probe-demo
+        lab: troubleshooting
+    spec:
+      containers:
+        - name: web
+          image: nginxinc/nginx-unprivileged:1.30-alpine
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: probe-demo
+  labels:
+    lab: troubleshooting
+spec:
+  selector:
+    app: probe-demo
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

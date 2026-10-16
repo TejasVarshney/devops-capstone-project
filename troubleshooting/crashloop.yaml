@@ -1,0 +1,36 @@
+# Lab 4 (bonus) - CrashLoopBackOff. The container starts and exits again and again.
+#   kubectl apply -f troubleshooting/crashloop.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-config-demo
+  labels:
+    lab: troubleshooting
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-config-demo
+  template:
+    metadata:
+      labels:
+        app: api-config-demo
+        lab: troubleshooting
+    spec:
+      containers:
+        - name: api
+          image: busybox:1.37
+          # Stands in for an application that refuses to start without its configuration.
+          command:
+            - sh
+            - -c
+            - |
+              if [ -z "$DATABASE_URL" ]; then
+                echo "FATAL: DATABASE_URL is not set" >&2
+                exit 1
+              fi
+              echo "configuration loaded"; sleep 3600
+          resources:
+            requests:
+              cpu: 10m
+              memory: 8Mi

@@ -1,0 +1,51 @@
+# Fix for Lab 4: `kubectl logs <pod> --previous` shows "FATAL: DATABASE_URL is not set".
+# Provide the configuration. (Real credentials belong in a Secret, as in the Helm chart.)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: api-config-demo
+  labels:
+    lab: troubleshooting
+type: Opaque
+stringData:
+  DATABASE_URL: postgresql+psycopg://demo:demo@postgres:5432/demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-config-demo
+  labels:
+    lab: troubleshooting
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-config-demo
+  template:
+    metadata:
+      labels:
+        app: api-config-demo
+        lab: troubleshooting
+    spec:
+      containers:
+        - name: api
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - |
+              if [ -z "$DATABASE_URL" ]; then
+                echo "FATAL: DATABASE_URL is not set" >&2
+                exit 1
+              fi
+              echo "configuration loaded"; sleep 3600
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: api-config-demo
+                  key: DATABASE_URL
+          resources:
+            requests:
+              cpu: 10m
+              memory: 8Mi

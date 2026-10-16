@@ -1,0 +1,15 @@
+# Fix for Lab 2: the Service selected "app: web" but the Pods are labelled
+# "app: web-frontend". No matching labels = no endpoints = no traffic.
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-svc
+  labels:
+    lab: troubleshooting
+spec:
+  selector:
+    app: web-frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080

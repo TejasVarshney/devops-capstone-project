@@ -1,0 +1,35 @@
+# Fix for Lab 3: Nginx has no /ready path and answers 404, so the readiness probe
+# always fails. Unready Pods are removed from the Service endpoints.
+# Probe a path the container actually serves.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: probe-demo
+  labels:
+    lab: troubleshooting
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: probe-demo
+  template:
+    metadata:
+      labels:
+        app: probe-demo
+        lab: troubleshooting
+    spec:
+      containers:
+        - name: web
+          image: nginxinc/nginx-unprivileged:1.30-alpine
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi

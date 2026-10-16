@@ -1,0 +1,58 @@
+# In-cluster load generator for the HPA demo. It talks to the backend Service directly,
+# so it works even before an Ingress is configured.
+#
+#   kubectl apply -f scripts/load-generator.yaml
+#   kubectl get hpa -n taskboard -w          # watch REPLICAS grow
+#   kubectl top pods -n taskboard
+#   kubectl delete -f scripts/load-generator.yaml   # stop the load, watch it scale back down
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: taskboard-load-generator
+  namespace: taskboard
+  labels:
+    app.kubernetes.io/part-of: taskboard
+    app.kubernetes.io/component: load-generator
+spec:
+  parallelism: 4
+  completions: 4
+  backoffLimit: 0
+  activeDeadlineSeconds: 600 # stop on its own after 10 minutes
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: load-generator
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: load
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - |
+              echo "generating load against taskboard-backend"
+              end=$(( $(date +%s) + 540 ))
+              while [ "$(date +%s)" -lt "$end" ]; do
+                for i in 1 2 3 4 5 6 7 8; do
+                  wget -q -O /dev/null http://taskboard-backend:8000/api/tasks &
+                  wget -q -O /dev/null http://taskboard-backend:8000/api/tasks/stats &
+                done
+                wait
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 16Mi
+            limits:
+              cpu: 250m
+              memory: 64Mi
