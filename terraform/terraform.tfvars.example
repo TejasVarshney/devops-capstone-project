@@ -1,0 +1,13 @@
+# Copy to terraform.tfvars and adjust. terraform.tfvars is git-ignored.
+
+region             = "ap-south-1"
+cluster_name       = "taskboard-eks"
+kubernetes_version = "1.36"
+
+node_instance_types = ["t3.medium"]
+node_min_size       = 2
+node_desired_size   = 2
+node_max_size       = 4
+
+# IAM principal used by GitHub Actions to run `helm upgrade` (optional).
+# cluster_admin_arns = ["arn:aws:iam::123456789012:user/taskboard-ci"]
