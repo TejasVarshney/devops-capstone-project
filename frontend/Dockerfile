@@ -20,6 +20,13 @@ RUN npm run build
 # Unprivileged Nginx: runs as a non-root user and listens on 8080.
 FROM nginxinc/nginx-unprivileged:1.30-alpine
 
+# Pick up Alpine security fixes published after the base image was built
+# (e.g. curl and brotli CVEs that fail the Trivy gate), then drop back to the
+# image's non-root nginx user (UID 101).
+USER root
+RUN apk upgrade --no-cache
+USER 101
+
 # The official image renders /etc/nginx/templates/*.template with envsubst at startup,
 # so the same image works in Docker Compose (backend) and Kubernetes (<release>-backend).
 ENV BACKEND_HOST=backend \
