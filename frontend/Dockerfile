@@ -18,7 +18,7 @@ RUN npm run build
 
 
 # Unprivileged Nginx: runs as a non-root user and listens on 8080.
-FROM nginxinc/nginx-unprivileged:1.30-alpine
+FROM nginxinc/nginx-unprivileged:1.31-alpine
 
 # Pick up Alpine security fixes published after the base image was built
 # (e.g. curl and brotli CVEs that fail the Trivy gate), then drop back to the
