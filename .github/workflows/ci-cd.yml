@@ -192,7 +192,7 @@ jobs:
 
       - name: Install Helm
         if: steps.creds.outputs.ready == 'true'
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
 
       - name: Helm upgrade --install
         if: steps.creds.outputs.ready == 'true'
